@@ -57,6 +57,9 @@ const isPairs = (v) => Array.isArray(v) && v.every((p) => Array.isArray(p));
 
 // Used only by python/travel_4link.py tables; kept in the YAML, hidden in the viewer.
 const HIDDEN = new Set(["travel.step", "travel.articulation"]);
+// Driveshaft analysis is hidden until there is real data to check it against; pinion angle stays.
+const SHOW_DRIVELINE = false;
+if (!SHOW_DRIVELINE) for (const k of ["type", "pinion_ujoint", "tcase_ujoint", "tcase_angle", "joint_limit"]) HIDDEN.add(`driveline.${k}`);
 
 function fieldHtml(key, value, path) {
   const p = path.join(".");
@@ -65,7 +68,7 @@ function fieldHtml(key, value, path) {
   const attrs = h ? ` data-help="data:${p}" data-hl="${h.hl ?? ""}"` : "";
   const mark = h ? `<span class="q">?</span>` : "";
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    const note = path.length === 1 && SECTION_NOTES[key] ? `<div class="note">${SECTION_NOTES[key]}</div>` : "";
+    const note = path.length === 1 && SECTION_NOTES[key] && (SHOW_DRIVELINE || key !== "driveline") ? `<div class="note">${SECTION_NOTES[key]}</div>` : "";
     return `<fieldset><legend${attrs}>${key}${mark}</legend>${note}${Object.entries(value).map(([k, v]) => fieldHtml(k, v, [...path, k])).join("")}</fieldset>`;
   }
   let input;
@@ -192,7 +195,7 @@ let worstCache = null;
 function worstMisalignment() {
   if (worstCache?.axle === axle) return worstCache;
   const w = Object.fromEntries(JOINT_IDX.map(([n]) => [n, [0, [0, 0]]]));
-  const ds = cfg.driveline ? { min: Infinity, max: -Infinity, tcase: [0, [0, 0]], pinion: [0, [0, 0]] } : null;
+  const ds = SHOW_DRIVELINE && cfg.driveline ? { min: Infinity, max: -Infinity, tcase: [0, [0, 0]], pinion: [0, [0, 0]] } : null;
   const { bump, droop } = cfg.travel;
   for (let zl = -droop; zl <= bump; zl++) {
     let q = [0, 0, 0, 0, 0, 0];
@@ -258,7 +261,7 @@ function update() {
   }));
   const d = p.driveline, dl = cfg.driveline, jl = dl?.joint_limit ?? Infinity;
   let driveRows = [];
-  if (d) {
+  if (d && SHOW_DRIVELINE) {
     const d0 = driveline(c, axle, [0, 0, 0, 0, 0, 0]);
     $("static").innerHTML += rows([
       ["Driveshaft slip range", `${ds.min.toFixed(2)} – ${ds.max.toFixed(2)} (${(ds.max - ds.min).toFixed(2)})`, false, "ds_slip"],
@@ -376,7 +379,7 @@ function drawViews(p, cgSel) {
       text([center[0] - 1, center[2] - 0.5], `pinion ${angText(pinionAngle(), p.pinion)}`, "#ef6c00");
     });
     // Driveshaft, pinion U-joint to t-case.
-    if (p.driveline) g("shaft", () => {
+    if (SHOW_DRIVELINE && p.driveline) g("shaft", () => {
       const { pinion: a, tcase: b } = p.driveline;
       line([a[0], a[2]], [b[0], b[2]], "#6d4c41", 1);
       dot([a[0], a[2]], "#6d4c41", 0.7);
@@ -450,7 +453,7 @@ function drawViews(p, cgSel) {
         poly([w[0], w[1], w[3], w[2]].map((q) => [q[0], q[1]]), "#999");
       }
     });
-    if (p.driveline) g("shaft", () => {
+    if (SHOW_DRIVELINE && p.driveline) g("shaft", () => {
       const { pinion: a, tcase: b } = p.driveline;
       line([a[0], a[1]], [b[0], b[1]], "#6d4c41", 1);
     });
@@ -725,7 +728,7 @@ function buildScene() {
   parts.joints = axle.links.flatMap(() => [0, 1].map(() => { const m = new THREE.Mesh(jointGeo, mat(0x2e7d32)); world.add(m); return m; }));
 
   parts.shaft = null;
-  if (cfg.driveline) {
+  if (SHOW_DRIVELINE && cfg.driveline) {
     parts.shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1, 16), mat(0x6d4c41));
     world.add(parts.shaft);
   }
