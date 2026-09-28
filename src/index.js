@@ -47,7 +47,13 @@ export default {
     if (path === "/api/feedback") return feedback(request, env);
     if (path !== "/api/hit") return env.ASSETS.fetch(request);
     const cf = request.cf ?? {};
+    const body = await request.text();
+    let hit;
+    try { hit = JSON.parse(body); } catch { hit = { ref: body }; }
+    const last = Number(hit?.last);
     console.log({
+      returning: last > 0,
+      daysSinceLast: last > 0 ? Math.floor((Date.now() - last) / 86400000) : null,
       country: cf.country,
       city: cf.city,
       region: cf.region,
@@ -56,7 +62,7 @@ export default {
       asn: cf.asn,
       asOrganization: cf.asOrganization,
       timezone: cf.timezone,
-      referrer: (await request.text()).slice(0, 500) || null,
+      referrer: String(hit?.ref ?? "").slice(0, 500) || null,
       userAgent: request.headers.get("user-agent"),
     });
     return new Response(null, { status: 204 });

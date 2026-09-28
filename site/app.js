@@ -6,7 +6,12 @@ import { CALC_HELP, SECTION_NOTES, dataHelp } from "./help.js";
 import { DEFAULT_YAML } from "./defaults.js";
 
 const $ = (id) => document.getElementById(id);
-navigator.sendBeacon?.("/api/hit", document.referrer);
+let last = null;
+try {
+  last = localStorage.getItem("fl_last");
+  localStorage.setItem("fl_last", Date.now());
+} catch {}
+navigator.sendBeacon?.("/api/hit", JSON.stringify({ ref: document.referrer, last }));
 const TIRE_WIDTH = 12.5;
 // raw = the YAML as entered (axle/frame sections); cfg = resolved into frame coordinates.
 let raw, cfg, axle, fileName = "rear-4-link.yaml";
