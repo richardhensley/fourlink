@@ -166,7 +166,7 @@ class Axle:
 
 def driveline(cfg, axle, q):
     """Rear driveshaft at a pose, from cfg["driveline"] (None if absent). Degrees,
-    + = front end up; side angles in the X-Z plane. Mirrors driveline() in fourlink.js."""
+    + = front end up; side angles in the X-Z plane. Mirrors driveline() in site/fourlink.js."""
     d = cfg.get("driveline")
     if not d:
         return None

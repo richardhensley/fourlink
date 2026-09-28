@@ -1,6 +1,6 @@
 // Cross-check the JS solver against python/travel_4link.py.
 // Usage: python -c "import json,yaml;print(json.dumps(yaml.safe_load(open('examples/rear-4-link.yaml'))))" | node check.mjs
-import { Axle, poseAnalysis, resolve, staticAnalysis } from "./fourlink.js";
+import { Axle, poseAnalysis, resolve, staticAnalysis } from "./site/fourlink.js";
 
 const cfg = resolve(JSON.parse(await new Promise((r) => { let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => r(s)); })));
 const s = staticAnalysis(cfg);
