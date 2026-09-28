@@ -7,3 +7,4 @@ __pycache__/
 Thumbs.db
 .devin/
 fourlink.code-workspace
+.wrangler/

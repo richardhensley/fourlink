@@ -6,6 +6,7 @@ import { CALC_HELP, SECTION_NOTES, dataHelp } from "./help.js";
 import { DEFAULT_YAML } from "./defaults.js";
 
 const $ = (id) => document.getElementById(id);
+navigator.sendBeacon?.("/api/hit", document.referrer);
 const TIRE_WIDTH = 12.5;
 // raw = the YAML as entered (axle/frame sections); cfg = resolved into frame coordinates.
 let raw, cfg, axle, fileName = "rear-4-link.yaml";
