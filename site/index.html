@@ -60,6 +60,12 @@
   .glow circle { stroke: #ff6f00; stroke-width: 0.8px; }
   .glow text { fill: #e65100 !important; font-weight: bold; }
   .glow { filter: drop-shadow(0 0 1px #ffb300); }
+  .tabs button.fbopen { flex: 0 0 auto; }
+  #fb { width: 420px; border: 1px solid #999; border-radius: 6px; }
+  #fb h3 { margin-top: 0; }
+  #fb input[type=email], #fb textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; margin-top: 2px; }
+  #fb .hp { position: absolute; left: -9999px; }
+  #fbstatus { min-height: 1.2em; margin: 6px 0; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -74,6 +80,7 @@
   <div class="tabs">
     <button class="active" data-tab="calcs">Calculations</button>
     <button data-tab="data">Data entry</button>
+    <button id="fbopen" class="fbopen">Feedback</button>
   </div>
   <div id="data" class="tab" hidden>
     <div class="filebar">
@@ -108,6 +115,17 @@
   <svg id="side"></svg>
 </div>
 <div id="help" hidden></div>
+<dialog id="fb">
+  <form id="fbform">
+    <h3>Feedback</h3>
+    <label>Your email (so I can reply)<input type="email" id="fbemail" required maxlength="200"></label>
+    <label>Message<textarea id="fbmsg" required maxlength="10000" rows="8"></textarea></label>
+    <label><input type="checkbox" id="fbyaml" checked> Include the current YAML</label>
+    <label class="hp" aria-hidden="true">Website<input id="fbsite" tabindex="-1" autocomplete="off"></label>
+    <div id="fbstatus"></div>
+    <div class="filebar"><button type="submit">Send</button><button type="button" id="fbcancel">Cancel</button></div>
+  </form>
+</dialog>
 <script type="module" src="app.js"></script>
 </body>
 </html>

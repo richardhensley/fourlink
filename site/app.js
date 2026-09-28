@@ -113,8 +113,8 @@ function readForm() {
   return next;
 }
 
-document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
-  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+document.querySelectorAll(".tabs button[data-tab]").forEach((b) => (b.onclick = () => {
+  document.querySelectorAll(".tabs button[data-tab]").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll(".tab").forEach((t) => (t.hidden = t.id !== b.dataset.tab));
   redrawViews();
   resize();
@@ -133,6 +133,22 @@ $("save").onclick = () => {
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: fileName });
   a.click();
   URL.revokeObjectURL(a.href);
+};
+$("fbopen").onclick = () => { $("fbstatus").textContent = ""; $("fb").showModal(); };
+$("fbcancel").onclick = () => $("fb").close();
+$("fbform").onsubmit = async (e) => {
+  e.preventDefault();
+  $("fbstatus").textContent = "Sending…";
+  const body = {
+    email: $("fbemail").value,
+    message: $("fbmsg").value,
+    yaml: $("fbyaml").checked ? yaml.dump(readForm(), { flowLevel: 2, lineWidth: -1 }) : "",
+    website: $("fbsite").value,
+  };
+  const ok = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((r) => r.ok, () => false);
+  $("fbstatus").textContent = ok ? "Thanks, sent." : "Couldn't send. Please email feedback@fourlink.org.";
+  if (ok) { $("fbmsg").value = ""; setTimeout(() => $("fb").close(), 1200); }
 };
 $("hole").onchange = () => { axle = new Axle(cfg, $("hole").value); update(); };
 $("zl").oninput = () => { if ($("lock").checked) $("zr").value = $("zl").value; update(); };

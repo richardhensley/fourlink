@@ -1,6 +1,6 @@
 # fourlink - AI Agent Guidelines
 
-- Static viewer in `site/` (`index.html`, `app.js`, `fourlink.js`, `help.js`, `defaults.js`); no build step, deps via the CDN import map in `site/index.html`. Deployed as a Cloudflare Worker (`wrangler.toml`): `site/` is served as static assets; `src/index.js` only handles the `/api/hit` visit beacon (logs coarse geo, no IP, to Workers Logs). Serve locally with `python -m http.server 8765 --directory site`.
+- Static viewer in `site/` (`index.html`, `app.js`, `fourlink.js`, `help.js`, `defaults.js`); no build step, deps via the CDN import map in `site/index.html`. Deployed as a Cloudflare Worker (`wrangler.toml`): `site/` is served as static assets; `src/index.js` only handles the `/api/hit` visit beacon (logs coarse geo, no IP, to Workers Logs) and `/api/feedback` (feedback form, emailed via the `FEEDBACK` send_email binding). Serve locally with `python -m http.server 8765 --directory site`.
 - Python solvers in `python/` (Python 3 + PyYAML). `site/fourlink.js` is a port of `python/fourlink.py`; keep them in sync.
 - Verify:
   - `python python/static_4link.py examples/rear-4-link.yaml`

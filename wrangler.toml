@@ -9,6 +9,10 @@ routes = [
 directory = "./site"
 binding = "ASSETS"
 
+[[send_email]]
+name = "FEEDBACK"
+destination_address = "rhensley99@msn.com"
+
 [observability]
 enabled = true
 head_sampling_rate = 1
