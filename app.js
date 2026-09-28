@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import yaml from "js-yaml";
-import { Axle, mirror, poseAnalysis, resolve, rot, staticAnalysis } from "./fourlink.js";
+import { Axle, driveline, mirror, poseAnalysis, resolve, rot, staticAnalysis } from "./fourlink.js";
 import { CALC_HELP, SECTION_NOTES, dataHelp } from "./help.js";
+import { DEFAULT_YAML } from "./defaults.js";
 
 const $ = (id) => document.getElementById(id);
-const DEFAULT = "examples/rear-4-link.yaml";
 const TIRE_WIDTH = 12.5;
 // raw = the YAML as entered (axle/frame sections); cfg = resolved into frame coordinates.
 let raw, cfg, axle, fileName = "rear-4-link.yaml";
@@ -47,6 +47,7 @@ const holeName = (c) => ($("hole").value in c.brackets.uf_holes ? $("hole").valu
 
 // ---------- data entry form (generated from the config structure) ----------
 const BOLT_OPTIONS = ["horizontal", "vertical"];
+const SHAFT_OPTIONS = ["double_cardan", "single_cardan"];
 const AXES = ["X", "Y", "Z above frame bottom"];
 const AXLE_AXES = ["X", "Y", "height above axle center"];
 const esc = (s) => String(s).replace(/"/g, "&quot;");
@@ -68,7 +69,7 @@ function fieldHtml(key, value, path) {
   }
   let input;
   if (isPoint(value)) {
-    const axes = path[0] === "axle" ? AXLE_AXES : AXES;
+    const axes = path[0] === "axle" || p === "driveline.pinion_ujoint" ? AXLE_AXES : AXES;
     input = value.map((n, i) => `<input type="number" step="any" data-path="${p}" data-i="${i}" value="${n}" title="${axes[i]}" placeholder="${axes[i]}">`).join("");
   } else if (isPairs(value)) {
     input = `<input type="text" data-path="${p}" data-kind="pairs" value="${esc(value.map((q) => q.join(", ")).join("; "))}" title="pairs: a, b; c, d">`;
@@ -78,6 +79,8 @@ function fieldHtml(key, value, path) {
     input = `<input type="number" step="any" data-path="${p}" value="${value}">`;
   } else if (path[0] === "joints" && path[1] === "bolt" && key === "axis") {
     input = `<select data-path="${p}">${BOLT_OPTIONS.map((o) => `<option${o === value ? " selected" : ""}>${o}</option>`).join("")}</select>`;
+  } else if (p === "driveline.type") {
+    input = `<select data-path="${p}">${SHAFT_OPTIONS.map((o) => `<option${o === value ? " selected" : ""}>${o}</option>`).join("")}</select>`;
   } else {
     input = `<input type="text" data-path="${p}" value="${esc(value)}">`;
   }
@@ -109,7 +112,10 @@ function readForm() {
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll(".tab").forEach((t) => (t.hidden = t.id !== b.dataset.tab));
+  redrawViews();
+  resize();
 }));
+const activeTab = () => document.querySelector(".tabs button.active").dataset.tab;
 
 $("load").onchange = async (e) => {
   const file = e.target.files[0];
@@ -130,6 +136,7 @@ $("zr").oninput = () => { if ($("lock").checked) $("zl").value = $("zr").value; 
 $("cg").oninput = () => update();
 $("reset").onclick = () => { $("zl").value = $("zr").value = 0; update(); };
 
+const pinionAngle = () => cfg.driveline?.pinion_angle ?? 0;
 const f = (v, d = 2) => (v >= 0 ? "+" : "") + v.toFixed(d);
 // Angle as "base (delta total)", e.g. "-2.5° (+1.2° -1.3°)".
 const angText = (base, delta) => `${f(base, 1)}° (${f(delta, 1)}° ${f(base + delta, 1)}°)`;
@@ -141,7 +148,7 @@ const rows = (list) => list.map(([k, v, bad, id, hl]) =>
 let hlKey = null;
 function applyHighlight() {
   for (const el of document.querySelectorAll("svg .glow")) el.classList.remove("glow");
-  if (hlKey) for (const el of document.querySelectorAll(`svg .hl-${hlKey}`)) el.classList.add("glow");
+  if (hlKey) for (const el of document.querySelectorAll(hlKey.split(" ").map((k) => `svg .hl-${k}`).join(","))) el.classList.add("glow");
 }
 let helpEl = null;
 function showHelp(el) {
@@ -150,9 +157,12 @@ function showHelp(el) {
   const [kind, id] = (el?.dataset.help ?? ":").split(/:(.*)/);
   const h = kind === "data" ? dataHelp(id) : CALC_HELP[id];
   hlKey = el?.dataset.hl || null;
+  measureKey = kind === "data" ? id : null;
+  if (activeTab() === "data") { drawMeasure(); renderExplain(); }
   applyHighlight();
   const box = $("help");
-  if (!h) { box.hidden = true; return; }
+  // Data entry explains in the side panel instead of the floating card.
+  if (!h || activeTab() === "data") { box.hidden = true; return; }
   const clean = (s) => s.replace(/\?$/, "").trim();
   const title = el.dataset.title ?? (clean((el.querySelector("td, span, legend") ?? el).textContent) || clean(el.textContent));
   box.innerHTML = `<div class="help-title">${title}</div>` + [
@@ -175,11 +185,13 @@ $("panel").addEventListener("scroll", () => showHelp(null));
 
 // ---------- update ----------
 const JOINT_IDX = [["UA", 0, 0], ["UF", 0, 1], ["LA", 2, 0], ["LF", 2, 1]];
-// Worst misalignment per joint over a 1" grid of driver/passenger travel; cached per axle.
+// Worst misalignment per joint (and driveline extremes) over a 1" grid of driver/passenger
+// travel; cached per axle.
 let worstCache = null;
 function worstMisalignment() {
-  if (worstCache?.axle === axle) return worstCache.w;
+  if (worstCache?.axle === axle) return worstCache;
   const w = Object.fromEntries(JOINT_IDX.map(([n]) => [n, [0, [0, 0]]]));
+  const ds = cfg.driveline ? { min: Infinity, max: -Infinity, tcase: [0, [0, 0]], pinion: [0, [0, 0]] } : null;
   const { bump, droop } = cfg.travel;
   for (let zl = -droop; zl <= bump; zl++) {
     let q = [0, 0, 0, 0, 0, 0];
@@ -190,10 +202,17 @@ function worstMisalignment() {
         const d = Math.max(m[i][j], m[i + 1][j]);
         if (d > w[n][0]) w[n] = [d, [zl, zr]];
       }
+      if (ds) {
+        const d = driveline(cfg, axle, q);
+        ds.min = Math.min(ds.min, d.length);
+        ds.max = Math.max(ds.max, d.length);
+        if (d.tcaseJoint > ds.tcase[0]) ds.tcase = [d.tcaseJoint, [zl, zr]];
+        if (d.pinionJoint > ds.pinion[0]) ds.pinion = [d.pinionJoint, [zl, zr]];
+      }
     }
   }
-  worstCache = { axle, w };
-  return w;
+  worstCache = { axle, w, ds };
+  return worstCache;
 }
 
 function update() {
@@ -227,31 +246,44 @@ function update() {
     return;
   }
   const limit = cfg.joints.misalignment_limit;
-  const m = p.misalignment, m0 = axle.misalignment([0, 0, 0, 0, 0, 0]);
-  const mis = (i, j, mm = m) => Math.max(mm[i][j], mm[i + 1][j]);
+  const m = p.misalignment;
+  const mis = (i, j) => Math.max(m[i][j], m[i + 1][j]);
   const heave = zl === zr;
-  const w = worstMisalignment();
-  $("static").innerHTML += rows(JOINT_IDX.map(([n, i, j]) => {
-    const [deg, at] = w[n];
-    return [`${n} misalignment worst over travel`, `${deg.toFixed(1)}° at ${f(at[0], 0)}/${f(at[1], 0)}`, deg > limit, "mis_worst", n.toLowerCase()];
+  const { w, ds } = worstMisalignment();
+  const at = ([zl, zr]) => `${f(zl, 0)}/${f(zr, 0)}`;
+  $("static").innerHTML += rows(JOINT_IDX.map(([n]) => {
+    const [deg, where] = w[n];
+    return [`${n} misalign worst`, `${deg.toFixed(1)}° at ${at(where)}`, deg > limit, "mis_worst", n.toLowerCase()];
   }));
+  const d = p.driveline, dl = cfg.driveline, jl = dl?.joint_limit ?? Infinity;
+  let driveRows = [];
+  if (d) {
+    const d0 = driveline(c, axle, [0, 0, 0, 0, 0, 0]);
+    $("static").innerHTML += rows([
+      ["Driveshaft slip range", `${ds.min.toFixed(2)} – ${ds.max.toFixed(2)} (${(ds.max - ds.min).toFixed(2)})`, false, "ds_slip"],
+      ["T-case / pinion joint worst", `${ds.tcase[0].toFixed(1)}° at ${at(ds.tcase[1])} / ${ds.pinion[0].toFixed(1)}° at ${at(ds.pinion[1])}`, Math.max(ds.tcase[0], ds.pinion[0]) > jl, "ds_worst"],
+    ]);
+    driveRows = [
+      ["Driveshaft length", `${d.length.toFixed(2)} (${f(d.length - d0.length)})`, false, "ds_len"],
+      ["Driveshaft angle", f(d.shaftSide, 1) + "°", false, "ds_angle"],
+      ["Pinion actual / ideal (error)", `${f(d.pinionSide, 1)}° / ${f(d.ideal, 1)}° (${f(d.error, 1)}°)`, false, "ds_pinion"],
+      [`${dl.type === "single_cardan" ? "T-case U-joint" : "CV"} / pinion U-joint`, `${d.tcaseJoint.toFixed(1)}° / ${d.pinionJoint.toFixed(1)}°`, Math.max(d.tcaseJoint, d.pinionJoint) > jl, "ds_joints"],
+    ];
+  }
   $("pose").innerHTML = rows([
     [heave ? "Anti-squat" : "Anti-squat, driver side", p.antiSquat[0].toFixed(1) + "%", false, "as"],
     ["Roll axis", f(p.roll.angle) + "°", false, "roll"],
     ["Roll center above ground", (p.roll.rc - p.ground).toFixed(1), false, "rc"],
-    ["Pinion (+ nose up)", angText(c.vehicle.pinion_angle ?? 0, p.pinion), false, "pinion"],
+    ["Pinion (+ nose up)", angText(pinionAngle(), p.pinion), false, "pinion"],
     ["Axle roll", f(p.axleRoll) + "°", false, "axle_roll"],
     ["Roll steer (+ nose to driver)", f(p.steer) + "°", false, "steer"],
     ["Axle fore/aft / lateral", `${f(p.q[0])} / ${f(p.q[1])}`, false, "shift"],
     ["Bridge top to tub floor", p.tubGap === null ? "no packaging data" : p.tubGap.toFixed(2) + '"', p.tubGap < 0, "tub"],
-    ...JOINT_IDX.map(([n, i, j]) => {
-      const r = mis(i, j, m0), cur = mis(i, j);
-      return [`${n} misalignment (limit ${limit}°)`, `${r.toFixed(1)}° (${f(cur - r, 1)}° ${cur.toFixed(1)}°)`, cur > limit, "mis", n.toLowerCase()];
-    }),
+    ...JOINT_IDX.map(([n, i, j]) => [`${n} misalign drv / pass`, `${m[i][j].toFixed(1)}° / ${m[i + 1][j].toFixed(1)}°`, mis(i, j) > limit, "mis", n.toLowerCase()]),
+    ...driveRows,
   ]);
-  drawViews(p, cgSel);
   lastViews = [p, cgSel];
-  applyHighlight();
+  redrawViews();
   updateScene(p);
 }
 
@@ -273,7 +305,7 @@ function svgView(el, [x0, x1, y0, y1], draw) {
   const text = (a, s, c = "#333", anchor = "start") => out.push(`<text x="${-a[0]}" y="${-a[1]}" font-size="${fs}" fill="${c}" text-anchor="${anchor}">${s}</text>`);
   // Group drawing under highlight keys, e.g. g("ic upper", () => ...).
   const g = (keys, fn) => { out.push(`<g class="${keys.split(" ").map((k) => "hl-" + k).join(" ")}">`); fn(); out.push("</g>"); };
-  draw({ line, dot, circle, poly, text, g });
+  draw({ line, dot, circle, poly, text, g, fs });
   el.innerHTML = out.join("");
 }
 
@@ -286,7 +318,16 @@ function boltTick(line, pt, b, deg, ax, ay) {
   line(e(-1), e(1), `hsl(${hue},80%,40%)`, 0.8);
 }
 let lastViews = null;
-addEventListener("resize", () => lastViews && drawViews(...lastViews));
+// Calculations tab: analysis views. Data entry tab: measurement views.
+function redrawViews() {
+  const data = activeTab() === "data";
+  $("explain").hidden = !data;
+  renderer.domElement.style.display = data ? "none" : "block";
+  if (data) { drawMeasure(); renderExplain(); }
+  else if (lastViews) drawViews(...lastViews);
+  applyHighlight();
+}
+addEventListener("resize", redrawViews);
 function drawViews(p, cgSel) {
   const v = cfg.vehicle;
   const { axle: A, frame: F } = axle.points(p.q);
@@ -301,7 +342,8 @@ function drawViews(p, cgSel) {
   const deg = (dy, dx) => Math.atan2(dy, dx) * 180 / Math.PI;
   const plan = (P, i) => deg(Math.abs(P.frame[i][1] - P.axle[i][1]), P.frame[i][0] - P.axle[i][0]);
   const side = (P, i) => deg(P.frame[i][2] - P.axle[i][2], P.frame[i][0] - P.axle[i][0]);
-  const angLabel = (fn, i) => { const r = fn(R, i); return angText(r, fn({ axle: A, frame: F }, i) - r); };
+  // Link angle as "angle (forward misalignment, rearward misalignment)": frame joint, then axle joint.
+  const angLabel = (fn, i) => `${f(fn({ axle: A, frame: F }, i), 1)}° (${p.misalignment[i][1].toFixed(1)}°, ${p.misalignment[i][0].toFixed(1)}°)`;
 
   // Side view (X, Z): driver side links.
   const top = Math.max(cg[1], cfg.packaging?.tub_floor_z ?? 0) + 6;
@@ -324,10 +366,23 @@ function drawViews(p, cgSel) {
     });
     // Pinion centerline (rotates with the housing) and ride-height reference.
     g("pinion", () => {
-      const pin = axle.world(p.q, [14, 0, 0]);
-      line([center[0], center[2]], [center[0] + 14, center[2]], "#bbb", 0.3, "1,1");
+      // Ends at the pinion U-joint so the kink into the driveshaft shows.
+      const a = (pinionAngle() * Math.PI) / 180;
+      const L = cfg.driveline ? Math.hypot(cfg.driveline.pinion_ujoint[0], cfg.driveline.pinion_ujoint[2]) : 14;
+      const pin = axle.world(p.q, [L * Math.cos(a), 0, L * Math.sin(a)]);
+      line([center[0], center[2]], [center[0] + L * Math.cos(a), center[2] + L * Math.sin(a)], "#bbb", 0.3, "1,1");
       line([center[0], center[2]], [pin[0], pin[2]], "#ef6c00", 0.9);
-      text([center[0] - 1, center[2] - 0.5], `pinion ${angText(v.pinion_angle ?? 0, p.pinion)}`, "#ef6c00");
+      text([center[0] - 1, center[2] - 0.5], `pinion ${angText(pinionAngle(), p.pinion)}`, "#ef6c00");
+    });
+    // Driveshaft, pinion U-joint to t-case.
+    if (p.driveline) g("shaft", () => {
+      const { pinion: a, tcase: b } = p.driveline;
+      line([a[0], a[2]], [b[0], b[2]], "#6d4c41", 1);
+      dot([a[0], a[2]], "#6d4c41", 0.7);
+      dot([b[0], b[2]], "#6d4c41", 0.7);
+      // "angle (forward joint, rearward joint)", same order as the link labels.
+      const d = p.driveline, over = Math.max(d.tcaseJoint, d.pinionJoint) > (cfg.driveline.joint_limit ?? Infinity);
+      text([b[0] - 1, b[2] + 1], `shaft ${f(d.shaftSide, 1)}° (${d.tcaseJoint.toFixed(1)}°, ${d.pinionJoint.toFixed(1)}°) ${d.length.toFixed(1)}"`, over ? "#c00" : "#6d4c41");
     });
     // Separation between UA and LA joint centers.
     g("sep", () => {
@@ -394,6 +449,10 @@ function drawViews(p, cgSel) {
         poly([w[0], w[1], w[3], w[2]].map((q) => [q[0], q[1]]), "#999");
       }
     });
+    if (p.driveline) g("shaft", () => {
+      const { pinion: a, tcase: b } = p.driveline;
+      line([a[0], a[1]], [b[0], b[1]], "#6d4c41", 1);
+    });
     for (let i = 0; i < 4; i++) {
       const c = i < 2 ? "#1565c0" : "#2e7d32";
       g(`tri ${i < 2 ? "upper" : "lower"}`, () => {
@@ -415,13 +474,162 @@ function drawViews(p, cgSel) {
     }
     g("roll", () => {
       dot([ru[0], 0], "#1565c0", 1.2);
-      text([ru[0] + 2, -3], "upper X");
-      if (rl[0] < wb + 20) { dot([rl[0], 0], "#2e7d32", 1.2); text([rl[0] + 2, -3], `lower X ${rl[0].toFixed(0)}`); }
-      else text([wb + 10, -3], `lower X ${rl[0].toFixed(0)} →`, "#2e7d32");
+      text([ru[0] + 2, -3], `roll axis: uppers cross ${ru[0].toFixed(0)}"`);
+      if (rl[0] < wb + 20) { dot([rl[0], 0], "#2e7d32", 1.2); text([rl[0] + 2, -3], `roll axis: lowers cross ${rl[0].toFixed(0)}"`); }
+      else text([wb + 10, -3], `roll axis: lowers cross ${rl[0].toFixed(0)}" →`, "#2e7d32");
     });
     const pa = (i) => Math.atan2(Math.abs(F[i][1] - A[i][1]), F[i][0] - A[i][0]) * 180 / Math.PI;
     g("tri", () => text([wb + 20, -ht - TIRE_WIDTH / 2 + 1], `triangulation ${(pa(0) + pa(1) + pa(2) + pa(3)).toFixed(1)}° (2U ${(pa(0) + pa(1)).toFixed(1)}° + 2L ${(pa(2) + pa(3)).toFixed(1)}°)`));
     text([wb + 20, -ht - TIRE_WIDTH / 2 - 3], "TOP  (front ←, driver ↑)");
+  });
+}
+
+// ---------- measurement views (Data entry tab) ----------
+// Only the zero references and the points you measure, at ride height, from the applied data.
+// Hovering a field draws its dimensions from the reference it is measured against.
+let measureKey = null;
+// Which box of a point field (0 X, 1 Y, 2 Z/height) is hovered or focused; null = the whole field.
+let measureAxis = null;
+const showAxis = (i) => measureAxis === null || measureAxis === i;
+function trackAxis(e) {
+  const i = e.target.closest?.("input[data-i]")?.dataset.i;
+  const next = i === undefined ? null : +i;
+  if (next === measureAxis) return;
+  measureAxis = next;
+  if (activeTab() === "data") redrawViews();
+}
+const DATA_HELP_COORDS = dataHelp("coords").measure;
+$("panel").addEventListener("mouseover", trackAxis);
+$("panel").addEventListener("focusin", trackAxis);
+const DIM = "#e65100";
+function dim({ line, text, fs }, a, b, label) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+  if (L < 1e-6) return;
+  const t = [(-dy / L) * fs * 0.4, (dx / L) * fs * 0.4];
+  line(a, b, DIM, 0.4);
+  for (const p of [a, b]) line([p[0] - t[0], p[1] - t[1]], [p[0] + t[0], p[1] + t[1]], DIM, 0.4);
+  // Vertical dims: label beside the line (drawing X is mirrored, so -X is screen right). Others: above.
+  const vertical = Math.abs(dy) > Math.abs(dx);
+  const anchor = vertical ? (t[0] < 0 ? "start" : "end") : "middle";
+  text([(a[0] + b[0]) / 2 + 1.5 * t[0], (a[1] + b[1]) / 2 + 1.5 * t[1]], label, DIM, anchor);
+}
+// Angle from a dashed reference direction to a solid direction, both unit vectors from o.
+function angleMark({ line, text }, o, ref, dir, len, label) {
+  const e = (d) => [o[0] + len * d[0], o[1] + len * d[1]];
+  line(o, e(ref), "#999", 0.3, "1,1");
+  line(o, e(dir), DIM, 0.6);
+  text(e(dir), label, DIM);
+}
+
+// Explanation of the highlighted measurement, shown in place of the 3D view on Data entry.
+function renderExplain() {
+  const k = measureKey, h = k && dataHelp(k);
+  if (!h) {
+    $("explain").innerHTML = `<h2>How to measure</h2>Hover or click into a field on the left. The drawings show where that measurement goes, and this panel explains how to take it.<b>Coordinate system</b>${DATA_HELP_COORDS}`;
+    return;
+  }
+  const onAxle = k.startsWith("axle.") || k === "driveline.pinion_ujoint";
+  const AXIS_TEXT = [
+    "X: fore/aft from the rear axle centerline, + forward.",
+    "Y: side to side from the vehicle centerline, + toward the driver side.",
+    onAxle ? "Height: up from the axle center (tube centerline), − below it." : "Z: up from the bottom of the frame rail, − below it.",
+  ];
+  const axis = measureAxis !== null && $("form").querySelector(`input[data-path="${k}"][data-i="${measureAxis}"]`) && AXIS_TEXT[measureAxis];
+  $("explain").innerHTML = `<h2>${k}</h2>` + (axis ? `<div class="axis">${axis}</div>` : "") + [
+    h.what && `<b>What</b>${h.what}`,
+    h.measure && `<b>How to measure</b>${h.measure}`,
+    h.impact && `<b>What it affects</b>${h.impact}`,
+  ].filter(Boolean).join("");
+}
+
+function drawMeasure() {
+  if (!cfg) return;
+  const v = cfg.vehicle, H = v.frame_height, R = v.tire_radius, zc = R - H, wb = v.wheelbase, ht = v.track / 2;
+  const { axle: ax, frame: fr, driveline: dl, joints } = cfg;
+  const k = measureKey ?? "";
+  const rad = (a) => (a * Math.PI) / 180;
+  // [label, highlight key, YAML path, entered point, measured from axle center?]
+  const pts = [
+    ["UA", "ua", "axle.ua", ax.ua, true],
+    ["LA", "la", "axle.la", ax.la, true],
+    ["bridge top", "tub", "axle.bridge_top", ax.bridge_top, true],
+    ["LF", "lf", "frame.lf", fr.lf, false],
+    ...Object.entries(fr.uf_holes).map(([n, pt]) => [`UF ${n}`, "uf", `frame.uf_holes.${n}`, pt, false]),
+    ...(dl ? [["pinion U-joint", "shaft", "driveline.pinion_ujoint", dl.pinion_ujoint, true], ["t-case U-joint", "shaft", "driveline.tcase_ujoint", dl.tcase_ujoint, false]] : []),
+  ].filter((p) => p[3]);
+  const world = (e, onAxle) => [e[0], e[1], onAxle ? e[2] + zc : e[2]];
+  const hot = pts.find((p) => p[2] === k);
+  // Bolt fields: joints.bolt.<joint>[.axis|.angle].
+  const boltJ = k.match(/^joints\.bolt\.(ua|uf|la|lf)/)?.[1];
+  const jointPt = (j) => j === "ua" ? world(ax.ua, true) : j === "la" ? world(ax.la, true) : j === "lf" ? fr.lf : fr.uf_holes[$("hole").value] ?? Object.values(fr.uf_holes)[0];
+  const OTHER = { ua: "uf", uf: "ua", la: "lf", lf: "la" };
+
+  const top = Math.max(...v.cg_above_frame, fr.tub_floor_z ?? 0) + 6;
+  svgView($("side"), [-R - 6, wb + 22, -H - 4, top], (h) => {
+    const { line, dot, circle, text, g } = h;
+    g("ground", () => { line([-40, -H], [wb + 30, -H], "#888", 0.4); text([wb + 14, -H + 0.8], "ground", "#888"); });
+    line([-40, 0], [wb + 30, 0], "#999", 0.4, "2,1");
+    text([wb + 14, 0.8], "frame bottom Z=0", "#999");
+    line([0, -H], [0, top - 2], "#999", 0.4, "2,1");
+    text([-1, top - 3], "X=0 axle centerline", "#999");
+    g("axle", () => {
+      circle([0, zc], R, "#ddd");
+      line([-12, zc], [16, zc], "#999", 0.3, "2,1");
+      dot([0, zc], "#555", 0.8);
+      text([-1.5, zc + 1], "axle center", "#999");
+    });
+    if (k === "frame.tub_floor_z") { line([-15, fr.tub_floor_z], [30, fr.tub_floor_z], "#795548", 0.6); text([31, fr.tub_floor_z + 1], "tub floor", "#795548"); }
+    if (k === "vehicle.wheelbase" || k === "vehicle.cg_above_frame") { line([wb, -H], [wb, top - 2], "#ddd", 0.3); text([wb - 3, -H - 3], "front axle"); }
+    if (hot && measureAxis !== 1) {
+      const [label, , , e, onAxle] = hot, w = world(e, onAxle);
+      dot([w[0], w[2]], DIM, 1.1);
+      text([w[0] - 1, w[2] + 1], label, DIM);
+      if (showAxis(0)) dim(h, [0, w[2]], [w[0], w[2]], `X ${e[0]}`);
+      if (showAxis(2)) dim(h, [w[0], onAxle ? zc : 0], [w[0], w[2]], onAxle ? `height ${e[2]}` : `Z ${e[2]}`);
+    }
+    if (k === "vehicle.wheelbase") dim(h, [0, -H - 2], [wb, -H - 2], `wheelbase ${wb}`);
+    if (k === "vehicle.frame_height") dim(h, [wb / 2, -H], [wb / 2, 0], `H ${H}`);
+    if (k === "vehicle.tire_radius") dim(h, [-3, -H], [-3, zc], `R ${R}`);
+    if (k === "vehicle.cg_above_frame") v.cg_above_frame.forEach((c, i) => dim(h, [wb + 3 * i, 0], [wb + 3 * i, c], `CG ${c}`));
+    if (k === "frame.tub_floor_z") dim(h, [-10, 0], [-10, fr.tub_floor_z], `Z ${fr.tub_floor_z}`);
+    if (k === "driveline.pinion_angle" && dl) {
+      const a = rad(dl.pinion_angle);
+      angleMark(h, [0, zc], [1, 0], [Math.cos(a), Math.sin(a)], 16, `pinion ${dl.pinion_angle}° (+ nose up)`);
+    }
+    if (k === "driveline.tcase_angle" && dl) {
+      const a = rad(dl.tcase_angle), t = dl.tcase_ujoint;
+      angleMark(h, [t[0], t[2]], [1, 0], [Math.cos(a), Math.sin(a)], 10, `t-case ${dl.tcase_angle}° (+ front up)`);
+    }
+    if (boltJ && joints.bolt[boltJ]?.axis === "vertical") {
+      const b = joints.bolt[boltJ], p = jointPt(boltJ), sx = Math.sign(jointPt(OTHER[boltJ])[0] - p[0]) || 1, a = rad(b.angle);
+      angleMark(h, [p[0], p[2]], [0, 1], [sx * Math.sin(a), Math.cos(a)], 6, `bolt ${b.angle}° from plumb`);
+    }
+    text([wb + 14, top - 3], "SIDE  measuring (front ←): hover a field");
+  });
+
+  svgView($("top"), [-R - 6, wb + 22, -ht - TIRE_WIDTH / 2 - 6, ht + TIRE_WIDTH / 2 + 12], (h) => {
+    const { line, dot, poly, text, g } = h;
+    line([-30, 0], [wb + 20, 0], "#999", 0.4, "2,1");
+    text([wb + 20, 0.8], "Y=0 vehicle centerline", "#999");
+    line([0, -ht - 8], [0, ht + 10], "#999", 0.4, "2,1");
+    text([-1, ht + 9], "X=0 axle centerline", "#999");
+    g("axle", () => {
+      line([0, ht], [0, -ht], "#bbb", 1.2);
+      for (const s of [1, -1]) poly([[-R, s * ht - TIRE_WIDTH / 2], [R, s * ht - TIRE_WIDTH / 2], [R, s * ht + TIRE_WIDTH / 2], [-R, s * ht + TIRE_WIDTH / 2]], "#ddd");
+    });
+    if (hot && showAxis(1)) {
+      const e = hot[3];
+      dot([e[0], e[1]], DIM, 1.1);
+      text([e[0] - 1, e[1] + 1], hot[0], DIM);
+      if (showAxis(1)) dim(h, [e[0], 0], [e[0], e[1]], `Y ${e[1]}`);
+    }
+    if (k === "vehicle.track") dim(h, [R + 3, -ht], [R + 3, ht], `track ${v.track}`);
+    if (boltJ && joints.bolt[boltJ]?.axis === "horizontal") {
+      // Aim of the bracket toward the link's other end; + inboard (toward Y=0 on the driver side).
+      const b = joints.bolt[boltJ], p = jointPt(boltJ), sx = Math.sign(jointPt(OTHER[boltJ])[0] - p[0]) || 1, a = rad(b.angle);
+      angleMark(h, [p[0], p[1]], [sx, 0], [sx * Math.cos(a), -Math.sin(a)], 10, `aim ${b.angle}° ${b.angle >= 0 ? "inboard" : "outboard"}`);
+    }
+    text([wb + 20, -ht - TIRE_WIDTH / 2 - 3], "TOP  measuring (front ←, driver ↑, driver side shown)");
   });
 }
 
@@ -475,13 +683,14 @@ function buildScene() {
   // Axle assembly in axle-local coordinates; pose applied as a matrix.
   const ax = new THREE.Group();
   ax.matrixAutoUpdate = false;
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.75, 1.75, v.track - TIRE_WIDTH, 16), mat(0x444444));
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, v.track - TIRE_WIDTH, 16), mat(0x444444));
   ax.add(tube);
   const diff = new THREE.Mesh(new THREE.SphereGeometry(6, 24, 16), mat(0x555555));
   ax.add(diff);
-  const pinion = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 14, 12), mat(0xef6c00));
-  pinion.rotation.z = Math.PI / 2;
-  pinion.position.x = 10;
+  // Pinion from the axle center to the pinion U-joint, where the driveshaft starts.
+  const pinion = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1, 12), mat(0xef6c00));
+  const pa = (pinionAngle() * Math.PI) / 180;
+  cylinderBetween(pinion, [0, 0, 0], cfg.driveline?.pinion_ujoint ?? [14 * Math.cos(pa), 0, 14 * Math.sin(pa)]);
   ax.add(pinion);
   parts.tub = null;
   if (cfg.packaging) {
@@ -514,6 +723,12 @@ function buildScene() {
   parts.links = axle.links.map(() => { const m = new THREE.Mesh(linkGeo, mat(0x1565c0)); world.add(m); return m; });
   parts.joints = axle.links.flatMap(() => [0, 1].map(() => { const m = new THREE.Mesh(jointGeo, mat(0x2e7d32)); world.add(m); return m; }));
 
+  parts.shaft = null;
+  if (cfg.driveline) {
+    parts.shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1, 16), mat(0x6d4c41));
+    world.add(parts.shaft);
+  }
+
   // Roll axis line.
   parts.rollAxis = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0x8e24aa, dashSize: 3, gapSize: 1.5 }));
   world.add(parts.rollAxis);
@@ -539,6 +754,7 @@ function updateScene(p) {
     parts.joints[2 * i + 1].position.set(...F[i]);
     parts.joints[2 * i + 1].material.color.copy(color(mf));
   });
+  if (parts.shaft) cylinderBetween(parts.shaft, p.driveline.pinion, p.driveline.tcase);
   const { upper: u, lower: l } = p.roll;
   const x1 = Math.min(l[0], cfg.vehicle.wheelbase + 20);
   const z1 = u[1] + ((l[1] - u[1]) / (l[0] - u[0])) * (x1 - u[0]);
@@ -556,7 +772,4 @@ addEventListener("resize", resize);
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
 // ---------- boot ----------
-fetch(DEFAULT, { cache: "no-store" })
-  .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`${DEFAULT}: ${r.status}`))))
-  .then((t) => setConfig(yaml.load(t), "rear-4-link.yaml"))
-  .catch((e) => { $("err").textContent = `Load a YAML file (${e.message})`; });
+setConfig(yaml.load(DEFAULT_YAML), "rear-4-link.yaml");

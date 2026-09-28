@@ -9,6 +9,7 @@ const FRAME_PT = "Joint center (bolt center) on the frame. " + XY + " Z: up from
 export const SECTION_NOTES = {
   axle: "Welded to the axle. [X, Y, height above axle center]. Moves with the axle when frame height changes.",
   frame: "Welded to the frame. [X, Y, Z above frame bottom]. Never moves.",
+  driveline: "Rear driveshaft. pinion_ujoint is an axle point (height above axle center); tcase_ujoint is a frame point (Z above frame bottom). Angles + = front end up.",
 };
 
 export const DATA_HELP = {
@@ -34,9 +35,9 @@ export const DATA_HELP = {
     impact: "Sets axle center Z = R − H, the point the axle rotates about through travel.",
     hl: "axle",
   },
-  "vehicle.pinion_angle": {
-    measure: "Angle finder on the pinion yoke or flange face (converted to the shaft centerline), Jeep at ride height, + nose up. Subtract the frame's own rake if the frame isn't level.",
-    impact: "Baseline for the pinion readouts. Doesn't change the suspension math; it's the starting point for driveshaft and U-joint angle planning.",
+  "driveline.pinion_angle": {
+    measure: "Angle finder on the pinion yoke or flange face (converted to the shaft centerline), vehicle at ride height, + nose up. Subtract the frame's own rake if the frame isn't level.",
+    impact: "Baseline for the pinion readouts, and the actual pinion angle compared with the ideal. Doesn't change the suspension math.",
     hl: "pinion",
   },
   "vehicle.track": {
@@ -116,6 +117,35 @@ export const DATA_HELP = {
     impact: "Lower end of the travel sliders.",
     hl: "axle",
   },
+  driveline: { what: SECTION_NOTES.driveline, impact: "Driveshaft length, U-joint angles and ideal pinion angle through travel.", hl: "shaft" },
+  "driveline.type": {
+    what: "double_cardan: CV (double cardan) at the t-case, single U-joint at the pinion. single_cardan: a single U-joint at each end.",
+    impact: "Sets the ideal pinion angle. double_cardan: pinion points straight at the t-case. single_cardan: pinion parallel to the t-case output, so the two U-joint angles cancel.",
+    hl: "shaft",
+  },
+  "driveline.pinion_ujoint": {
+    what: "Center of the pinion yoke U-joint (the cross), on the axle.",
+    measure: "X and height from the axle center, Y from the vehicle centerline (+ driver). Moves with the axle.",
+    impact: "Rear end of the driveshaft.",
+    hl: "shaft",
+  },
+  "driveline.tcase_ujoint": {
+    what: "Center of the t-case output U-joint or CV, on the frame side.",
+    measure: "X from the rear axle centerline, Y from the vehicle centerline, Z from the frame bottom (below = negative).",
+    impact: "Front end of the driveshaft. Fixed to the frame.",
+    hl: "shaft",
+  },
+  "driveline.tcase_angle": {
+    what: "T-case output shaft angle, measured against the frame, + = front end up.",
+    measure: "Angle finder on the output yoke face (then convert to the shaft angle), minus the frame rail angle at the same time.",
+    impact: "T-case joint angle; the ideal pinion angle for a single-cardan shaft.",
+    hl: "shaft",
+  },
+  "driveline.joint_limit": {
+    what: "Largest operating angle allowed at either joint, from the driveshaft maker.",
+    impact: "Joint angles over this turn red.",
+    hl: "shaft",
+  },
 };
 
 // Joint bolt entries highlight their own joint.
@@ -147,7 +177,7 @@ export const CALC_HELP = {
     hl: "ic",
   },
   roll: {
-    what: "Roll axis: line through the points where the upper pair and the lower pair cross in the top view. + = roll oversteer.",
+    what: "Roll axis: line through the points where the upper pair and the lower pair cross in the top view (marked 'roll axis: uppers cross' and 'roll axis: lowers cross' in the top view, with distance forward of the axle; → = off the drawing). + = roll oversteer.",
     impact: "Sets roll steer, meaning how much the axle steers when it articulates. As close to 0° as practical.",
     hl: "roll",
   },
@@ -190,6 +220,40 @@ export const CALC_HELP = {
   steer: { what: "Axle yaw (rear steer) from ride height, + = axle nose toward driver side.", impact: "The rear tracks off line when crossed up. Set by the roll axis.", hl: "axle" },
   shift: { what: "Axle center movement fore/aft (+ forward) and lateral (+ driver) from ride height.", impact: "Tire-to-tub, shock, and driveshaft clearance. Lateral shift comes from the roll center sitting above the axle.", hl: "axle" },
   tub: { what: "Gap from the top of the bridge to the tub floor.", impact: "Negative = contact. Leave margin for bumpstop crush and flex.", hl: "tub" },
-  mis: { what: "Joint misalignment at the current travel, as ride height (change, total): how far the link tilts out of the plane square to the bolt. Worst of both sides.", impact: "Above the limit the joint binds. Red = over the limit.", hl: "joints" },
-  mis_worst: { what: "Largest misalignment for this joint anywhere in the travel range (1\" grid of every driver/passenger combination from full droop to full bump), and the driver/passenger travel where it occurs.", impact: "If this is under the limit, the joint never binds within the modeled travel. Red = over the limit somewhere.", hl: "joints" },
+  mis: {
+    what: "How far the rod end is cocked at one link end. UA = upper link at the axle, UF = upper link at the frame, LA = lower link at the axle, LF = lower link at the frame. A rod end swings freely around its bolt; any tilt of the link away from square to the bolt has to be taken by the ball swiveling in its housing, and that tilt is the misalignment. Shown as driver side / passenger side, at the current wheel travel. Matches the numbers on the link labels in the drawings.",
+    impact: "Every rod end has a rated swivel limit (set in the data). At the limit the housing hits the ball and the joint binds, loading the bracket and link. Ride-height misalignment comes from bracket angle not matching the link and eats into the range before the suspension moves. Red = over the limit. Reduce it by aiming the bracket along the link, or with high-misalignment joints or spacers.",
+    hl: "joints",
+  },
+  mis_worst: {
+    what: "Largest misalignment for this joint (UA/UF/LA/LF, see the travel rows) anywhere in the travel range, and the driver/passenger wheel travel where it happens. Checked on a 1\" grid of every driver/passenger combination from full droop to full bump, so it includes crossed-up articulation.",
+    impact: "Under the limit: this joint never binds within the modeled travel. Red: it binds somewhere; move the sliders to the listed travel to see it.",
+    hl: "joints",
+  },
+  ds_len: {
+    what: "Driveshaft length, U-joint center to U-joint center, with change from ride height.",
+    impact: "The slip spline must cover the change from shortest to longest (see Driveshaft slip range).",
+    hl: "shaft",
+  },
+  ds_angle: { what: "Driveshaft side-view angle, + = front end up.", impact: "Together with the t-case and pinion angles, sets the joint angles.", hl: "shaft" },
+  ds_pinion: {
+    what: "Actual pinion angle vs the ideal for this shaft type, and the difference (actual − ideal). Side view, + = nose up. Ideal: double cardan = pointing at the t-case; single cardan = parallel to the t-case output.",
+    impact: "Near 0 = smooth. A few degrees of error means vibration on the street.",
+    hl: "shaft",
+  },
+  ds_joints: {
+    what: "True 3D operating angle at the t-case joint (CV for double cardan) and at the pinion U-joint. Includes axle roll and yaw.",
+    impact: "Red = over the joint limit. Single cardan: the two should be equal. Double cardan: pinion joint should be small (about 0–2°).",
+    hl: "shaft",
+  },
+  ds_slip: {
+    what: "Shortest and longest driveshaft length over the full travel grid (1\" steps, including crossed-up articulation).",
+    impact: "Required slip travel = longest − shortest, plus margin. Size the collapsed and extended lengths to this.",
+    hl: "shaft",
+  },
+  ds_worst: {
+    what: "Largest t-case and pinion joint angles over the full travel grid, and where each happens (driver/passenger travel).",
+    impact: "Red = over the joint limit somewhere in travel.",
+    hl: "shaft",
+  },
 };

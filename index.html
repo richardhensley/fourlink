@@ -38,7 +38,11 @@
   #views { min-width: 0; overflow: hidden; }
   #three { overflow: hidden; }
   #three canvas { display: block; }
-  .inputs input[type=number] { flex: 0 1 70px; width: 70px; min-width: 0; box-sizing: border-box; font-size: 12px; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+  #explain { position: absolute; inset: 0; padding: 14px 18px; overflow-y: auto; background: #fffbe6; font-size: 15px; line-height: 1.45; }
+  #explain h2 { margin: 0 0 8px; font-size: 18px; color: #e65100; }
+  #explain .axis { background: #ffe0b2; border-left: 4px solid #e65100; padding: 6px 10px; margin: 8px 0; font-weight: bold; }
+  #explain b { display: block; margin-top: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #e65100; }
+  .inputs input[type=number] { flex: 0 1 70px; width: 70px; min-width: 0; box-sizing: border-box; font-size: 12px; font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield; }
   .inputs input[type=number]::-webkit-inner-spin-button, .inputs input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   #help { position: fixed; z-index: 1000; width: 380px; background: #fffbe6; border: 3px solid #ff8f00; border-radius: 8px;
           box-shadow: 0 8px 28px rgba(0,0,0,.35); font-size: 14px; line-height: 1.4; overflow: hidden; pointer-events: none;
@@ -99,7 +103,7 @@
 
 </div>
 <div id="views">
-  <div id="three"></div>
+  <div id="three"><div id="explain" hidden></div></div>
   <svg id="top"></svg>
   <svg id="side"></svg>
 </div>

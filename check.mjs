@@ -10,4 +10,6 @@ for (const [zl, zr] of [[-8, -8], [6, 6], [6, -8], [0, -8]]) {
   const p = poseAnalysis(cfg, axle, zl, zr, axle.pose(zl, zr));
   const m = p.misalignment, w = (i, j) => Math.max(m[i][j], m[i + 1][j]).toFixed(1);
   console.log(`${zl}/${zr} pinion ${p.pinion.toFixed(2)} steer ${p.steer.toFixed(2)} dY ${p.q[1].toFixed(2)} AS ${p.antiSquat[0].toFixed(1)} roll ${p.roll.angle.toFixed(2)} UA/UF/LA/LF ${w(0, 0)} ${w(0, 1)} ${w(2, 0)} ${w(2, 1)} tub ${p.tubGap.toFixed(2)}`);
+  const d = p.driveline;
+  if (d) console.log(`  shaft ${d.length.toFixed(2)} ${d.shaftSide.toFixed(1)} pinion ${d.pinionSide.toFixed(1)} err ${d.error.toFixed(1)} joints ${d.tcaseJoint.toFixed(1)} ${d.pinionJoint.toFixed(1)}`);
 }

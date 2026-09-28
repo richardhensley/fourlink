@@ -164,6 +164,28 @@ class Axle:
         return out
 
 
+def driveline(cfg, axle, q):
+    """Rear driveshaft at a pose, from cfg["driveline"] (None if absent). Degrees,
+    + = front end up; side angles in the X-Z plane. Mirrors driveline() in fourlink.js."""
+    d = cfg.get("driveline")
+    if not d:
+        return None
+    m = rot(*q[3:])
+    pa, ta = math.radians(d.get("pinion_angle", 0.0)), math.radians(d["tcase_angle"])
+    pinion, tcase = axle.world(q, d["pinion_ujoint"]), d["tcase_ujoint"]
+    shaft = unit(sub(tcase, pinion))
+    pdir = apply(m, [math.cos(pa), 0.0, math.sin(pa)])
+    tdir = [math.cos(ta), 0.0, math.sin(ta)]
+    between = lambda a, b: math.degrees(math.acos(min(1.0, dot(a, b))))
+    side = lambda u: math.degrees(math.atan2(u[2], u[0]))
+    shaft_side, pinion_side = side(shaft), side(pdir)
+    # Single cardan: pinion parallel to the t-case output. Double cardan: pinion points at the t-case.
+    ideal = d["tcase_angle"] if d["type"] == "single_cardan" else shaft_side
+    return {"length": math.dist(pinion, tcase), "shaft_side": shaft_side, "pinion_side": pinion_side,
+            "ideal": ideal, "error": pinion_side - ideal,
+            "pinion_joint": between(pdir, shaft), "tcase_joint": between(tdir, shaft)}
+
+
 def solve(a, b):
     n = len(b)
     m = [row[:] + [b[i]] for i, row in enumerate(a)]

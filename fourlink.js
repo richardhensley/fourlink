@@ -184,6 +184,30 @@ export function staticAnalysis(cfg, hole = "mid") {
   };
 }
 
+// Rear driveshaft at a pose, from cfg.driveline (null if absent). Angles in degrees,
+// + = front end up. Side angles are measured in the X-Z plane.
+export function driveline(cfg, axle, q) {
+  const d = cfg.driveline;
+  if (!d) return null;
+  const m = rot(q[3], q[4], q[5]);
+  const rad = (a) => (a * Math.PI) / 180;
+  const pa = rad(d.pinion_angle ?? 0), ta = rad(d.tcase_angle);
+  const pinion = axle.world(q, d.pinion_ujoint), tcase = d.tcase_ujoint;
+  const shaft = unit(sub(tcase, pinion));
+  const pdir = apply(m, [Math.cos(pa), 0, Math.sin(pa)]);
+  const tdir = [Math.cos(ta), 0, Math.sin(ta)];
+  const between = (a, b) => deg(Math.acos(Math.min(1, dot(a, b))));
+  const side = (u) => deg(Math.atan2(u[2], u[0]));
+  const shaftSide = side(shaft), pinionSide = side(pdir);
+  // Single cardan: pinion parallel to the t-case output. Double cardan: pinion points at the t-case.
+  const ideal = d.type === "single_cardan" ? d.tcase_angle : shaftSide;
+  return {
+    pinion, tcase, length: dist(pinion, tcase), shaftSide, pinionSide, ideal,
+    error: pinionSide - ideal,
+    pinionJoint: between(pdir, shaft), tcaseJoint: between(tdir, shaft),
+  };
+}
+
 // Metrics at a solved pose (travel at wheel center, driver/passenger).
 export function poseAnalysis(cfg, axle, zl, zr, q) {
   const v = cfg.vehicle;
@@ -199,5 +223,6 @@ export function poseAnalysis(cfg, axle, zl, zr, q) {
     axleRoll: deg(q[3]), pinion: -deg(q[4]), steer: deg(q[5]),
     misalignment: axle.misalignment(q),
     tubGap: axle.tubGap(q, cfg),
+    driveline: driveline(cfg, axle, q),
   };
 }

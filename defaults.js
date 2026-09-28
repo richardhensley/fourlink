@@ -1,4 +1,6 @@
-# Rear 4-link geometry. See README.md for the coordinate system.
+// Built-in default data, loaded when the app starts. Same format as a saved YAML file.
+// Keep in sync with examples/rear-4-link.yaml (used by the Python solvers).
+export const DEFAULT_YAML = `# Rear 4-link geometry. See README.md for the coordinate system.
 # Inches. X forward from the rear axle centerline, Y toward the driver side from
 # the vehicle centerline. Points are driver side (+Y); passenger side is mirrored.
 #
@@ -62,3 +64,4 @@ travel:
     - [0, -8]
     - [6, 0]
     - [3, -8]
+`;

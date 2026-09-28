@@ -9,7 +9,7 @@ Usage: python python/travel_4link.py examples/rear-4-link.yaml [uf_hole]
 import math
 import sys
 
-from fourlink import Axle, anti_squat, load, roll_axis
+from fourlink import Axle, anti_squat, driveline, load, roll_axis
 
 
 def main(path, hole="mid"):
@@ -42,6 +42,16 @@ def main(path, hole="mid"):
         q = axle.pose(zl, zr)
         print(f"{zl:+4.0f}/{zr:+4.0f} {math.degrees(q[3]):+6.2f} {math.degrees(q[5]):+6.2f} "
               f"{q[1]:+6.2f} {q[0]:+6.2f} {-math.degrees(q[4]):+7.2f} {axle.tub_gap(q, cfg):5.2f}  {misalign(axle, q)}")
+
+    if cfg.get("driveline"):
+        print(f"\nDRIVELINE ({cfg['driveline']['type']}; angles + = front end up)")
+        print(f"{'drv/pas':>9} {'length':>7} {'shaft':>6} {'pinion':>7} {'ideal':>6} {'error':>6} {'tcase j':>7} {'pin j':>6}")
+        n = int(round((t["bump"] + t["droop"]) / t["step"]))
+        poses = [(-t["droop"] + i * t["step"],) * 2 for i in range(n + 1)] + [tuple(a) for a in t["articulation"]]
+        for zl, zr in poses:
+            d = driveline(cfg, axle, axle.pose(zl, zr))
+            print(f"{zl:+4.0f}/{zr:+4.0f} {d['length']:7.2f} {d['shaft_side']:+6.1f} {d['pinion_side']:+7.1f} "
+                  f"{d['ideal']:+6.1f} {d['error']:+6.1f} {d['tcase_joint']:7.1f} {d['pinion_joint']:6.1f}")
 
 
 def misalign(axle, q):
