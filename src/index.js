@@ -1,9 +1,9 @@
 import { EmailMessage } from "cloudflare:email";
 import { DurableObject } from "cloudflare:workers";
 
-const ONLINE_MS = 60000;
+const ONLINE_MS = 120000;
 
-// Single global instance: total unique visitors (persisted) and tabs seen in the last minute (in memory).
+// Single global instance: total unique visitors (persisted) and tabs seen in the last two minutes (in memory).
 export class Counter extends DurableObject {
   online = new Map();
 
@@ -78,7 +78,7 @@ export default {
     let hit;
     try { hit = JSON.parse(body); } catch { hit = { ref: body }; }
     const last = Number(hit?.last);
-    if (!(last > 0)) await counter(env).hit();
+    if (hit?.counted !== true) await counter(env).hit();
     console.log({
       returning: last > 0,
       daysSinceLast: last > 0 ? Math.floor((Date.now() - last) / 86400000) : null,

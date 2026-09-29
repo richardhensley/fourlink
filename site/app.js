@@ -6,14 +6,17 @@ import { CALC_HELP, SECTION_NOTES, dataHelp } from "./help.js";
 import { DEFAULT_YAML } from "./defaults.js";
 
 const $ = (id) => document.getElementById(id);
-let last = null;
+let last = null, counted = false;
 try {
   last = localStorage.getItem("fl_last");
   localStorage.setItem("fl_last", Date.now());
+  counted = localStorage.getItem("fl_counted") === "1";
+  localStorage.setItem("fl_counted", "1");
 } catch {}
-navigator.sendBeacon?.("/api/hit", JSON.stringify({ ref: document.referrer, last }));
+navigator.sendBeacon?.("/api/hit", JSON.stringify({ ref: document.referrer, last, counted }));
 const tabId = crypto.randomUUID();
 async function ping() {
+  if (document.hidden) return;
   try {
     const r = await fetch("/api/ping", { method: "POST", body: tabId });
     if (!r.ok) return;
@@ -22,7 +25,8 @@ async function ping() {
   } catch {}
 }
 ping();
-setInterval(ping, 30000);
+setInterval(ping, 60000);
+document.addEventListener("visibilitychange", ping);
 const TIRE_WIDTH = 12.5;
 // raw = the YAML as entered (axle/frame sections); cfg = resolved into frame coordinates.
 let raw, cfg, axle, fileName = "rear-4-link.yaml";
