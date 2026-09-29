@@ -1,4 +1,25 @@
 import { EmailMessage } from "cloudflare:email";
+import { DurableObject } from "cloudflare:workers";
+
+const ONLINE_MS = 60000;
+
+// Single global instance: total unique visitors (persisted) and tabs seen in the last minute (in memory).
+export class Counter extends DurableObject {
+  online = new Map();
+
+  async hit() {
+    await this.ctx.storage.put("visitors", ((await this.ctx.storage.get("visitors")) ?? 0) + 1);
+  }
+
+  async ping(id) {
+    const now = Date.now();
+    this.online.set(id, now);
+    for (const [k, t] of this.online) if (now - t > ONLINE_MS) this.online.delete(k);
+    return { visitors: (await this.ctx.storage.get("visitors")) ?? 0, online: this.online.size };
+  }
+}
+
+const counter = (env) => env.COUNTER.get(env.COUNTER.idFromName("global"));
 
 const FROM = "feedback@fourlink.org";
 const TO = "rhensley99@msn.com";
@@ -45,12 +66,19 @@ export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (path === "/api/feedback") return feedback(request, env);
+    if (path === "/api/ping") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const id = (await request.text()).slice(0, 64);
+      if (!id) return new Response(null, { status: 400 });
+      return Response.json(await counter(env).ping(id));
+    }
     if (path !== "/api/hit") return env.ASSETS.fetch(request);
     const cf = request.cf ?? {};
     const body = await request.text();
     let hit;
     try { hit = JSON.parse(body); } catch { hit = { ref: body }; }
     const last = Number(hit?.last);
+    if (!(last > 0)) await counter(env).hit();
     console.log({
       returning: last > 0,
       daysSinceLast: last > 0 ? Math.floor((Date.now() - last) / 86400000) : null,

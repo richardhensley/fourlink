@@ -13,6 +13,14 @@ binding = "ASSETS"
 name = "FEEDBACK"
 destination_address = "rhensley99@msn.com"
 
+[[durable_objects.bindings]]
+name = "COUNTER"
+class_name = "Counter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter"]
+
 [observability]
 enabled = true
 head_sampling_rate = 1

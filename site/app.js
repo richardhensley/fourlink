@@ -12,6 +12,17 @@ try {
   localStorage.setItem("fl_last", Date.now());
 } catch {}
 navigator.sendBeacon?.("/api/hit", JSON.stringify({ ref: document.referrer, last }));
+const tabId = crypto.randomUUID();
+async function ping() {
+  try {
+    const r = await fetch("/api/ping", { method: "POST", body: tabId });
+    if (!r.ok) return;
+    const { visitors, online } = await r.json();
+    $("stats").textContent = `${visitors.toLocaleString()} visitors · ${online} online`;
+  } catch {}
+}
+ping();
+setInterval(ping, 30000);
 const TIRE_WIDTH = 12.5;
 // raw = the YAML as entered (axle/frame sections); cfg = resolved into frame coordinates.
 let raw, cfg, axle, fileName = "rear-4-link.yaml";
