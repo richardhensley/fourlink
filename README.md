@@ -1,6 +1,8 @@
 # fourlink
 
-Design and check a rear 4-link suspension before you build it.
+Design and check a rear 4-link suspension before you build it. Try it at **[fourlink.org](https://fourlink.org)**.
+
+![fourlink viewer: 3D, top and side views updating as the axle moves through travel](site/demo.gif)
 
 Enter your bracket locations and fourlink shows the geometry in 3D, top and side views and works out how it will behave: anti-squat, instant center, roll axis and roll steer, pinion change, joint misalignment and bridge-to-tub clearance. You see the numbers at ride height and anywhere in the travel range, including crossed-up articulation.
 
@@ -22,7 +24,7 @@ Anything over a limit is shown in red.
 
 ## Using it
 
-1. Open the viewer. It starts with an example Jeep rear 4-link.
+1. Open the viewer at [fourlink.org](https://fourlink.org). It starts with an example Jeep rear 4-link.
 2. On the **Data entry** tab, enter your measurements and click **Apply**. Hover any field for what to measure and what it affects. **Save YAML** keeps your setup; **Load YAML** brings it back.
 3. On the **Calculations** tab, pick the upper frame bracket hole and CG height, then drag the driver and passenger travel sliders to pose the axle. Tick **Lock sides** for straight bump and droop. Hover any result for what it means; the related part of the drawing lights up.
 
